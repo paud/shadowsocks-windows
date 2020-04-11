@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Windows.Forms;
+using NLog;
 using Microsoft.Win32;
 
 using Shadowsocks.Controller;
@@ -14,6 +15,7 @@ namespace Shadowsocks
 {
     static class Program
     {
+        private static Logger logger = LogManager.GetCurrentClassLogger();
         public static ShadowsocksController MainController { get; private set; }
         public static MenuViewController MenuController { get; private set; }
         public static string[] Args { get; private set; }
@@ -24,8 +26,12 @@ namespace Shadowsocks
         [STAThread]
         static void Main(string[] args)
         {
+            Directory.SetCurrentDirectory(Application.StartupPath);
+            // todo: initialize the NLog configuartion
+            Model.NLogConfig.TouchAndApplyNLogConfig();
+
             // .NET Framework 4.7.2 on Win7 compatibility
-            System.Net.ServicePointManager.SecurityProtocol |= 
+            System.Net.ServicePointManager.SecurityProtocol |=
                 System.Net.SecurityProtocolType.Tls | System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls12;
 
             // store args for further use
@@ -41,11 +47,12 @@ namespace Shadowsocks
             // Check .NET Framework version
             if (!Utils.IsSupportedRuntimeVersion())
             {
-                MessageBox.Show(I18N.GetString("Unsupported .NET Framework, please update to 4.6.2 or later."),
-                "Shadowsocks Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
-
-                Process.Start(
-                    "https://www.microsoft.com/download/details.aspx?id=53344");
+                if (DialogResult.OK == MessageBox.Show(I18N.GetString("Unsupported .NET Framework, please update to {0} or later.", "4.7.2"),
+                "Shadowsocks Error", MessageBoxButtons.OKCancel, MessageBoxIcon.Error))
+                {
+                    //Process.Start("https://www.microsoft.com/download/details.aspx?id=53344");    // 4.6.2
+                    Process.Start("https://dotnet.microsoft.com/download/dotnet-framework/net472");
+                }
                 return;
             }
 
@@ -77,18 +84,16 @@ namespace Shadowsocks
                     return;
                 }
                 Directory.SetCurrentDirectory(Application.StartupPath);
+                
 #if DEBUG
-                Logging.OpenLogFile();
-
                 // truncate privoxy log file while debugging
                 string privoxyLogFilename = Utils.GetTempPath("privoxy.log");
                 if (File.Exists(privoxyLogFilename))
                     using (new FileStream(privoxyLogFilename, FileMode.Truncate)) { }
-#else
-                Logging.OpenLogFile();
 #endif
                 MainController = new ShadowsocksController();
                 MenuController = new MenuViewController(MainController);
+
                 HotKeys.Init(MainController);
                 MainController.Start();
                 Application.Run();
@@ -101,7 +106,7 @@ namespace Shadowsocks
             if (Interlocked.Increment(ref exited) == 1)
             {
                 string errMsg = e.ExceptionObject.ToString();
-                Logging.Error(errMsg);
+                logger.Error(errMsg);
                 MessageBox.Show(
                     $"{I18N.GetString("Unexpected error, shadowsocks will exit. Please report to")} https://github.com/shadowsocks/shadowsocks-windows/issues {Environment.NewLine}{errMsg}",
                     "Shadowsocks non-UI Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -114,7 +119,7 @@ namespace Shadowsocks
             if (Interlocked.Increment(ref exited) == 1)
             {
                 string errorMsg = $"Exception Detail: {Environment.NewLine}{e.Exception}";
-                Logging.Error(errorMsg);
+                logger.Error(errorMsg);
                 MessageBox.Show(
                     $"{I18N.GetString("Unexpected error, shadowsocks will exit. Please report to")} https://github.com/shadowsocks/shadowsocks-windows/issues {Environment.NewLine}{errorMsg}",
                     "Shadowsocks UI Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
@@ -127,7 +132,7 @@ namespace Shadowsocks
             switch (e.Mode)
             {
                 case PowerModes.Resume:
-                    Logging.Info("os wake up");
+                    logger.Info("os wake up");
                     if (MainController != null)
                     {
                         System.Threading.Tasks.Task.Factory.StartNew(() =>
@@ -136,11 +141,11 @@ namespace Shadowsocks
                             try
                             {
                                 MainController.Start(false);
-                                Logging.Info("controller started");
+                                logger.Info("controller started");
                             }
                             catch (Exception ex)
                             {
-                                Logging.LogUsefulException(ex);
+                                logger.LogUsefulException(ex);
                             }
                         });
                     }
@@ -149,9 +154,9 @@ namespace Shadowsocks
                     if (MainController != null)
                     {
                         MainController.Stop();
-                        Logging.Info("controller stopped");
+                        logger.Info("controller stopped");
                     }
-                    Logging.Info("os suspend");
+                    logger.Info("os suspend");
                     break;
             }
         }
